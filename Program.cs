@@ -1,14 +1,15 @@
 using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Push To Talk")]
 [assembly: AssemblyProduct("Push To Talk")]
 [assembly: AssemblyDescription("Lightweight microphone control with multiple hotkeys and optional sound feedback")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace PushToTalk
 {
@@ -22,6 +23,14 @@ namespace PushToTalk
             string settingsError;
             AppSettings launchSettings = AppSettings.Load(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.xml"), out settingsError);
             Localization.SetLanguage(launchSettings.Language);
+            if (!IsAdministrator())
+            {
+                MessageBox.Show(Localization.Text(
+                    "Push To Talk 必须以管理员身份运行。请右键程序并选择“以管理员身份运行”。",
+                    "Push To Talk must run as administrator. Right-click the app and select Run as administrator."),
+                    "Push To Talk", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             bool startupLaunch = StartupRegistration.IsStartupLaunch(args);
             bool created;
             // Keep the original mutex identity so old and renamed builds cannot both control the mic.
@@ -43,6 +52,19 @@ namespace PushToTalk
                 try { form = new MainForm(startupLaunch); Application.Run(form); }
                 finally { if (form != null) form.Dispose(); mutex.ReleaseMutex(); }
             }
+        }
+
+        internal static bool IsAdministrator()
+        {
+            try
+            {
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+                {
+                    return identity != null && new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+                }
+            }
+            catch (System.Security.SecurityException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
     }
 }

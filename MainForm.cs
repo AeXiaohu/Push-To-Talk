@@ -172,7 +172,7 @@ namespace PushToTalk
             startWithWindows.SetBounds(322, 568, 214, 24);
             startWithWindows.Text = M("开机自启动");
             startWithWindows.AccessibleName = M("开机自启动");
-            startWithWindows.AccessibleDescription = M("登录 Windows 后在托盘运行，有已保存的快捷键和可用麦克风时自动启用控制。");
+            startWithWindows.AccessibleDescription = M("登录 Windows 后请求管理员授权；确认后在托盘运行，有已保存的快捷键和可用麦克风时自动启用控制。");
             DarkTheme.StyleCheckBox(startWithWindows);
             Controls.Add(startWithWindows);
 
@@ -248,8 +248,15 @@ namespace PushToTalk
             overlayOpacity.Value = settings.OverlayOpacity;
             overlayOpacityValue.Text = overlayOpacity.Value + "%";
             string startupError = null;
-            try { startWithWindows.Checked = startupRegistration.IsEnabled(Application.ExecutablePath); }
-            catch (Exception) { startWithWindows.Enabled = false; startupError = M("无法读取开机启动设置。"); }
+            try
+            {
+                startupRegistration.MigrateLegacyRegistration(Application.ExecutablePath);
+                startWithWindows.Checked = startupRegistration.IsEnabled(Application.ExecutablePath);
+            }
+            catch (Exception error)
+            {
+                startupError = Localization.Text("无法读取或升级开机启动设置：", "Cannot read or upgrade Windows startup settings: ") + error.Message;
+            }
             enableSounds.Checked = settings.EnableSounds;
             feedback.Enabled = settings.EnableSounds;
             foreach (string saved in settings.Bindings)
@@ -321,7 +328,7 @@ namespace PushToTalk
             { "启用提示音（开麦 / 静音）", "Sound cues (unmute / mute)" },
             { "启用提示音", "Sound cues" },
             { "开机自启动", "Start with Windows" },
-            { "登录 Windows 后在托盘运行，有已保存的快捷键和可用麦克风时自动启用控制。", "Start in the tray at sign-in; enable control when saved hotkeys and microphone are available." },
+            { "登录 Windows 后请求管理员授权；确认后在托盘运行，有已保存的快捷键和可用麦克风时自动启用控制。", "Request administrator approval at sign-in; then start in the tray and enable control when saved hotkeys and microphone are available." },
             { "启用屏幕覆盖", "Screen overlay" },
             { "在屏幕上显示开麦、静音或未启用状态，默认关闭。", "Show microphone status on screen. Off by default." },
             { "编辑位置和大小", "Edit position and size" },

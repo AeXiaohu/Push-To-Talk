@@ -31,7 +31,7 @@ namespace PushToTalk
 
             Label title = new Label { Text = "Push To Talk", Font = titleFont,
                 Location = new Point(24, 23), Size = new Size(380, 44) };
-            Label version = new Label { Text = Localization.Text("版本 1.0", "Version 1.0"), ForeColor = DarkTheme.Subtle,
+            Label version = new Label { Text = Localization.Text("版本 1.1", "Version 1.1"), ForeColor = DarkTheme.Subtle,
                 Location = new Point(27, 76), Size = new Size(378, 24) };
             Label description = new Label { Text = Localization.Text("多个按键，一个麦克风。", "Multiple keys. One microphone."),
                 Location = new Point(27, 105), Size = new Size(378, 25) };

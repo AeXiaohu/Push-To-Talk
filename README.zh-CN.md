@@ -4,7 +4,7 @@
 
 轻量、便携的 Windows 麦克风快捷键工具。多个快捷键控制同一个麦克风，按住任意一个即可说话，全部松开后静音。
 
-**版本 1.2 · Windows 10 / 11 · 无需安装**
+**版本 1.3 · Windows 10 / 11 · 无需安装**
 
 ![Push To Talk 中文界面](docs/images/screenshot-zh-CN.png)
 

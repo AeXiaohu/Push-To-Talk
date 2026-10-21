@@ -7,6 +7,14 @@ namespace PushToTalk
 {
     internal static class DarkTheme
     {
+        // Preserve the proportions of the original 125% (120 DPI) interface.
+        public const float DesignDpi = 120F;
+
+        public static int ScalePixels(int pixels, float dpi)
+        {
+            return (int)Math.Round(pixels * dpi / DesignDpi);
+        }
+
         public static readonly Color Background = Color.FromArgb(20, 22, 27);
         public static readonly Color Surface = Color.FromArgb(29, 33, 40);
         public static readonly Color Field = Color.FromArgb(24, 28, 35);
@@ -63,7 +71,7 @@ namespace PushToTalk
             combo.ForeColor = Text;
             combo.FlatStyle = FlatStyle.Flat;
             combo.DrawMode = DrawMode.OwnerDrawFixed;
-            combo.ItemHeight = Math.Max(22, combo.Font.Height + 7);
+            combo.ItemHeight = 24;
             combo.DrawItem += delegate(object sender, DrawItemEventArgs args)
             {
                 bool selected = (args.State & DrawItemState.Selected) != 0;
@@ -72,8 +80,8 @@ namespace PushToTalk
                 string value = args.Index >= 0 && args.Index < combo.Items.Count
                     ? combo.GetItemText(combo.Items[args.Index]) : combo.Text;
                 Rectangle bounds = args.Bounds;
-                bounds.X += 7;
-                bounds.Width = Math.Max(0, bounds.Width - 9);
+                bounds.X += ScalePixels(7, args.Graphics.DpiX);
+                bounds.Width = Math.Max(0, bounds.Width - ScalePixels(9, args.Graphics.DpiX));
                 TextRenderer.DrawText(args.Graphics, value, args.Font, bounds, combo.Enabled ? Text : Subtle,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
                 if ((args.State & DrawItemState.Focus) != 0) args.DrawFocusRectangle();
@@ -93,8 +101,8 @@ namespace PushToTalk
                 if (args.Index >= 0 && args.Index < list.Items.Count)
                 {
                     Rectangle bounds = args.Bounds;
-                    bounds.X += 8;
-                    bounds.Width = Math.Max(0, bounds.Width - 10);
+                    bounds.X += ScalePixels(8, args.Graphics.DpiX);
+                    bounds.Width = Math.Max(0, bounds.Width - ScalePixels(10, args.Graphics.DpiX));
                     TextRenderer.DrawText(args.Graphics, list.GetItemText(list.Items[args.Index]), args.Font,
                         bounds, list.Enabled ? Text : Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
                         TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping);

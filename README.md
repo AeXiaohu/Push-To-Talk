@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 A lightweight, portable Windows app that lets you control a microphone with multiple keyboard or mouse shortcuts.
 
-**Version 1.2** · Windows 10 / 11 · .NET Framework 4.x
+**Version 1.3** · Windows 10 / 11 · .NET Framework 4.x
 
 ![Push To Talk English interface](docs/images/screenshot-en.png)
 

@@ -17,10 +17,10 @@ namespace PushToTalk
 
         public CaptureDialog()
         {
+            SuspendLayout();
+            AutoScaleMode = AutoScaleMode.None;
             Text = Localization.Text("添加按键", "Add shortcut");
             Font = new Font(Localization.IsChinese ? "Microsoft YaHei UI" : "Segoe UI", 9F);
-            AutoScaleDimensions = new SizeF(96, 96);
-            AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(430, 235);
             BackColor = DarkTheme.Background;
             ForeColor = DarkTheme.Text;
@@ -53,6 +53,10 @@ namespace PushToTalk
             timer.Tick += Poll;
             Shown += delegate { Application.AddMessageFilter(this); timer.Start(); };
             FormClosed += delegate { Application.RemoveMessageFilter(this); timer.Dispose(); };
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(DarkTheme.DesignDpi, DarkTheme.DesignDpi);
+            PerformAutoScale();
+            ResumeLayout(true);
         }
 
         // Local window messages make even very short keyboard taps capturable.

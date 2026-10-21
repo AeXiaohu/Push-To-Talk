@@ -9,8 +9,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Push To Talk")]
 [assembly: AssemblyProduct("Push To Talk")]
 [assembly: AssemblyDescription("Lightweight microphone control with multiple hotkeys and optional sound feedback")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace PushToTalk
 {

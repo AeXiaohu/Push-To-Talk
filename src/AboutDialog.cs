@@ -14,13 +14,13 @@ namespace PushToTalk
 
         public AboutDialog()
         {
+            SuspendLayout();
+            AutoScaleMode = AutoScaleMode.None;
             Text = Localization.Text("关于 Push To Talk", "About Push To Talk");
             Icon = appIcon;
             Font = uiFont;
             BackColor = DarkTheme.Background;
             ForeColor = DarkTheme.Text;
-            AutoScaleDimensions = new SizeF(96, 96);
-            AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(430, 252);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
@@ -31,7 +31,7 @@ namespace PushToTalk
 
             Label title = new Label { Text = "Push To Talk", Font = titleFont,
                 Location = new Point(24, 23), Size = new Size(380, 44) };
-            Label version = new Label { Text = Localization.Text("版本 1.2", "Version 1.2"), ForeColor = DarkTheme.Subtle,
+            Label version = new Label { Text = Localization.Text("版本 1.3", "Version 1.3"), ForeColor = DarkTheme.Subtle,
                 Location = new Point(27, 76), Size = new Size(378, 24) };
             Label description = new Label { Text = Localization.Text("多个按键，一个麦克风。", "Multiple keys. One microphone."),
                 Location = new Point(27, 105), Size = new Size(378, 25) };
@@ -60,6 +60,10 @@ namespace PushToTalk
             AcceptButton = close;
             CancelButton = close;
             Controls.AddRange(new Control[] { title, version, description, author, link, error, close });
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(DarkTheme.DesignDpi, DarkTheme.DesignDpi);
+            PerformAutoScale();
+            ResumeLayout(true);
         }
 
         protected override void Dispose(bool disposing)

@@ -73,13 +73,14 @@ namespace PushToTalk
 
         public MainForm(bool startupLaunch)
         {
+            // Finish the complete design layout before WinForms consumes its DPI baseline.
+            SuspendLayout();
+            AutoScaleMode = AutoScaleMode.None;
             suppressInitialShow = startupLaunch;
             Text = "Push To Talk";
             Font = new Font("Microsoft YaHei UI", 9F);
             ForeColor = Ink;
             BackColor = DarkTheme.Background;
-            AutoScaleDimensions = new SizeF(96, 96);
-            AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(560, 729);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -111,7 +112,7 @@ namespace PushToTalk
 
             statusPanel.SetBounds(24, 103, 512, 80);
             statusPanel.BackColor = DarkTheme.Surface;
-            status.SetBounds(16, 11, 480, 30);
+            status.SetBounds(16, 11, 480, 34);
             status.Font = new Font(Font.FontFamily, 15, FontStyle.Bold);
             detail.SetBounds(17, 47, 478, 24);
             detail.ForeColor = Subtle;
@@ -348,6 +349,17 @@ namespace PushToTalk
             ApplyOverlayVisibility();
             ApplyLanguage(true);
             Activated += delegate { if (!draggingVolume) SelectVolumeDevice(); };
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(DarkTheme.DesignDpi, DarkTheme.DesignDpi);
+            PerformAutoScale();
+            ResumeLayout(true);
+
+            // Native owner-drawn row heights and popup widths do not follow bounds scaling.
+            float dpi = CurrentAutoScaleDimensions.Height;
+            foreach (ComboBox combo in new[] { language, devices, modes })
+                combo.ItemHeight = DarkTheme.ScalePixels(24, dpi);
+            bindingList.ItemHeight = DarkTheme.ScalePixels(27, dpi);
+            devices.DropDownWidth = DarkTheme.ScalePixels(650, dpi);
         }
 
         private static readonly Dictionary<string, string> englishText = new Dictionary<string, string>
@@ -367,7 +379,7 @@ namespace PushToTalk
             { "按住静音", "Push to mute" },
             { "按一下切换开 / 关", "Toggle on / off" },
             { "快捷键", "Hotkeys" },
-            { "+ 添加按键", "+ Add hotkey" },
+            { "+ 添加按键", "+ Add" },
             { "移除所选", "Remove" },
             { "已绑定快捷键", "Assigned hotkeys" },
             { "还没有绑定按键\r\n点击“添加按键”，自行设置第一个快捷键。", "No hotkeys yet\r\nChoose Add hotkey to create your first binding." },
@@ -761,7 +773,7 @@ namespace PushToTalk
             if (editing && overlayEditorShift == 0)
             {
                 int margin;
-                using (Graphics graphics = CreateGraphics()) margin = (int)Math.Round(8 * graphics.DpiY / 96);
+                using (Graphics graphics = CreateGraphics()) margin = DarkTheme.ScalePixels(8, graphics.DpiY);
                 overlayEditorShift = overlayEditor.Height + margin;
                 foreach (Control control in overlayBottomControls) control.Top += overlayEditorShift;
                 ClientSize = new Size(ClientSize.Width, ClientSize.Height + overlayEditorShift);

@@ -4,6 +4,9 @@ if (-not (Test-Path -LiteralPath $compilerPath)) {
     $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
 }
 if (-not (Test-Path -LiteralPath $compilerPath)) { throw '.NET Framework 4.x compiler was not found.' }
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$assetsDir = Join-Path $projectRoot 'assets'
+New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
 $generatorDir = Join-Path $PSScriptRoot '.icon-build'
 $generatorSource = Join-Path $generatorDir 'IconGenerator.cs'
 $generatorExe = Join-Path $generatorDir 'IconGenerator.exe'
@@ -162,10 +165,10 @@ internal static class IconGenerator
 '@ | Set-Content -LiteralPath $generatorSource -Encoding UTF8
     & $compilerPath /nologo /target:exe /optimize+ "/out:$generatorExe" /reference:System.dll /reference:System.Drawing.dll $generatorSource
     if ($LASTEXITCODE -ne 0) { throw 'Icon generator build failed.' }
-    & $generatorExe $PSScriptRoot
+    & $generatorExe $assetsDir
     if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed.' }
-    Write-Output (Join-Path $PSScriptRoot 'app.ico')
-    Write-Output (Join-Path $PSScriptRoot 'app-icon.png')
+    Write-Output (Join-Path $assetsDir 'app.ico')
+    Write-Output (Join-Path $assetsDir 'app-icon.png')
 }
 finally {
     if (Test-Path -LiteralPath $generatorSource) { Remove-Item -LiteralPath $generatorSource }

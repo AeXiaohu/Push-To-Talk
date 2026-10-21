@@ -87,7 +87,7 @@ namespace PushToTalk
     }
 
     // Keep a session on the UI thread and dispose it before changing devices.
-    // Construction and disposal leave the microphone's mute state untouched.
+    // Construction and disposal leave the microphone's mute and volume state untouched.
     public sealed class AudioSession : IDisposable
     {
         private IAudioEndpointVolume volume;
@@ -140,6 +140,44 @@ namespace PushToTalk
         {
             ThrowIfDisposed();
             CoreAudio.Check(volume.SetMute(muted, IntPtr.Zero), Localization.Text("无法设置静音状态，麦克风可能已断开", "Unable to set the mute status. The microphone may be disconnected"));
+        }
+
+        public int GetVolume()
+        {
+            ThrowIfDisposed();
+            float scalar;
+            CoreAudio.Check(volume.GetMasterVolumeLevelScalar(out scalar), Localization.Text(
+                "无法读取麦克风音量，麦克风可能已断开", "Unable to read the microphone volume. The microphone may be disconnected"));
+            return ScalarToPercent(scalar);
+        }
+
+        // Endpoint volume and mute are separate controls. In particular, setting
+        // 0% must not change the mute state owned by the hotkey state machine.
+        public void SetVolume(int percent)
+        {
+            ThrowIfDisposed();
+            float scalar = PercentToScalar(percent);
+            CoreAudio.Check(volume.SetMasterVolumeLevelScalar(scalar, IntPtr.Zero), Localization.Text(
+                "无法设置麦克风音量，麦克风可能已断开", "Unable to set the microphone volume. The microphone may be disconnected"));
+        }
+
+        internal static float PercentToScalar(int percent)
+        {
+            if (percent < 0 || percent > 100)
+                throw new ArgumentOutOfRangeException("percent", Localization.Text(
+                    "麦克风音量必须在 0 到 100 之间。", "Microphone volume must be between 0 and 100."));
+            return percent / 100F;
+        }
+
+        internal static int ScalarToPercent(float scalar)
+        {
+            if (Single.IsNaN(scalar) || Single.IsInfinity(scalar))
+                throw new ArgumentOutOfRangeException("scalar", Localization.Text(
+                    "麦克风返回了无效的音量值。", "The microphone returned an invalid volume value."));
+            // Core Audio specifies 0..1. Clamp finite driver rounding overshoot
+            // so the displayed value always remains valid for a 0..100 slider.
+            double bounded = Math.Max(0.0, Math.Min(1.0, (double)scalar));
+            return (int)Math.Round(bounded * 100.0, MidpointRounding.AwayFromZero);
         }
 
         private void ThrowIfDisposed()

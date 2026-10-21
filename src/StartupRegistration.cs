@@ -9,7 +9,7 @@ namespace PushToTalk
     {
         internal const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         internal const string RegistryValueName = "Push To Talk";
-        internal const string LauncherFileName = "Push To Talk Startup.exe";
+        internal const string LegacyLauncherFileName = "Push To Talk Startup.exe";
         private readonly IStartupRegistrationStore store;
         private readonly Func<string, bool> fileExists;
 
@@ -28,14 +28,16 @@ namespace PushToTalk
             string commandLine = BuildCommandLine(executablePath);
             string registeredCommand = store.Read() as string;
             return String.Equals(commandLine, registeredCommand, StringComparison.OrdinalIgnoreCase)
-                && fileExists(GetLauncherPath(executablePath));
+                && fileExists(NormalizeExecutablePath(executablePath));
         }
 
-        // Upgrade only this installation's already-enabled 1.0 entry. A fresh or
-        // unrelated registration must never turn startup on merely by opening the app.
+        // Upgrade only this installation's already-enabled 1.1 companion entry.
+        // The 1.0 direct command is already correct for the 1.2 self-elevating app.
+        // A fresh or unrelated registration must never turn startup on merely by
+        // opening the app.
         public bool MigrateLegacyRegistration(string executablePath)
         {
-            string legacyCommand = "\"" + NormalizeExecutablePath(executablePath) + "\" --startup";
+            string legacyCommand = "\"" + GetLegacyLauncherPath(executablePath) + "\"";
             if (!String.Equals(store.Read() as string, legacyCommand, StringComparison.OrdinalIgnoreCase)) return false;
             SetEnabled(executablePath, true);
             return true;
@@ -47,16 +49,12 @@ namespace PushToTalk
         {
             if (enabled)
             {
-                if (!String.Equals(Path.GetFileName(executablePath), "Push To Talk.exe", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException(Localization.Text(
-                        "启用开机自启动时，请保持主程序文件名为 Push To Talk.exe。",
-                        "Keep the main application named Push To Talk.exe to enable Windows startup."));
                 string command = BuildCommandLine(executablePath);
-                string launcher = GetLauncherPath(executablePath);
-                if (!fileExists(launcher))
+                string executable = NormalizeExecutablePath(executablePath);
+                if (!fileExists(executable))
                     throw new FileNotFoundException(Localization.Text(
-                        "缺少开机启动器。请将 Push To Talk Startup.exe 与主程序放在同一文件夹。",
-                        "Startup launcher is missing. Keep Push To Talk Startup.exe beside the main application."), launcher);
+                        "找不到主程序，无法设置开机自启动。",
+                        "The application could not be found. Windows startup was not enabled."), executable);
                 store.Write(command);
             }
             else store.Delete();
@@ -64,16 +62,16 @@ namespace PushToTalk
 
         internal static string BuildCommandLine(string executablePath)
         {
-            string commandLine = "\"" + GetLauncherPath(executablePath) + "\"";
+            string commandLine = "\"" + NormalizeExecutablePath(executablePath) + "\" --startup";
             // The Windows Run key supports command lines of at most 260 characters.
             if (commandLine.Length > 260)
                 throw new PathTooLongException(Localization.Text("程序路径太长，无法设置开机自启动。请将程序移到较短的路径后重试。", "The application path is too long for startup. Move the application to a shorter path and try again."));
             return commandLine;
         }
 
-        internal static string GetLauncherPath(string executablePath)
+        internal static string GetLegacyLauncherPath(string executablePath)
         {
-            return Path.Combine(Path.GetDirectoryName(NormalizeExecutablePath(executablePath)), LauncherFileName);
+            return Path.Combine(Path.GetDirectoryName(NormalizeExecutablePath(executablePath)), LegacyLauncherFileName);
         }
 
         private static string NormalizeExecutablePath(string executablePath)

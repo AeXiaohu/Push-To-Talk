@@ -26,6 +26,9 @@ namespace PushToTalk
         private readonly Button add = new Button();
         private readonly Button remove = new Button();
         private readonly Button refresh = new Button();
+        private readonly TrackBar microphoneVolume = new TrackBar();
+        private readonly Label microphoneVolumeValue = new Label();
+        private readonly ToolTip volumeTip = new ToolTip();
         private readonly CheckBox enableSounds = new CheckBox();
         private readonly CheckBox startWithWindows = new CheckBox();
         private readonly CheckBox enableOverlay = new CheckBox();
@@ -44,6 +47,9 @@ namespace PushToTalk
         private readonly string settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.xml");
         private AppSettings settings;
         private AudioSession session;
+        private AudioSession volumeSession;
+        private bool updatingVolume;
+        private bool draggingVolume;
         private MuteStateMachine state;
         private HotkeyPoller poller;
         private bool originalMute;
@@ -191,8 +197,10 @@ namespace PushToTalk
 
             overlayEditor.SetBounds(24, 636, 512, 40);
             overlayEditor.Visible = false;
-            Label opacityLabel = LabelAt(M("不透明度"), 2, 9, 85, 23, 9, false);
-            overlayOpacity.SetBounds(92, 0, 332, 40);
+            Label opacityLabel = LabelAt(M("不透明度"), 2, 8, 85, 24, 9, false);
+            opacityLabel.TextAlign = ContentAlignment.MiddleLeft;
+            overlayOpacity.AutoSize = false;
+            overlayOpacity.SetBounds(92, 8, 332, 28);
             overlayOpacity.BackColor = DarkTheme.Background;
             overlayOpacity.TickStyle = TickStyle.None;
             overlayOpacity.Minimum = OverlayLayout.MinimumOpacity;
@@ -201,8 +209,8 @@ namespace PushToTalk
             overlayOpacity.SmallChange = 5;
             overlayOpacity.LargeChange = 10;
             overlayOpacity.AccessibleName = M("屏幕覆盖不透明度");
-            overlayOpacityValue.SetBounds(444, 9, 68, 23);
-            overlayOpacityValue.TextAlign = ContentAlignment.TopRight;
+            overlayOpacityValue.SetBounds(444, 8, 68, 24);
+            overlayOpacityValue.TextAlign = ContentAlignment.MiddleRight;
             overlayOpacityValue.Text = "100%";
             overlayEditor.Controls.AddRange(new Control[] { opacityLabel, overlayOpacity, overlayOpacityValue });
             Controls.Add(overlayEditor);
@@ -223,6 +231,36 @@ namespace PushToTalk
             footer.ForeColor = Subtle;
             Controls.Add(footer);
             overlayBottomControls.AddRange(new Control[] { start, hide, exit, footer });
+
+            // Keep the existing sections together while adding one compact volume row.
+            foreach (Control control in Controls) if (control.Top >= 276) control.Top += 50;
+            ClientSize = new Size(ClientSize.Width, ClientSize.Height + 50);
+            Label microphoneVolumeLabel = LabelAt(M("麦克风音量"), 24, 276, 168, 24, 9, false);
+            microphoneVolumeLabel.TextAlign = ContentAlignment.MiddleLeft;
+            Controls.Add(microphoneVolumeLabel);
+            microphoneVolume.AutoSize = false;
+            microphoneVolume.SetBounds(196, 276, 264, 28);
+            microphoneVolume.Minimum = 0;
+            microphoneVolume.Maximum = 100;
+            microphoneVolume.SmallChange = 1;
+            microphoneVolume.LargeChange = 10;
+            microphoneVolume.TickStyle = TickStyle.None;
+            microphoneVolume.BackColor = DarkTheme.Background;
+            microphoneVolume.AccessibleName = M("麦克风音量");
+            microphoneVolume.Enabled = false;
+            microphoneVolumeValue.SetBounds(476, 276, 60, 24);
+            microphoneVolumeValue.TextAlign = ContentAlignment.MiddleRight;
+            microphoneVolumeValue.ForeColor = Subtle;
+            microphoneVolumeValue.Text = "—";
+            Controls.AddRange(new Control[] { microphoneVolume, microphoneVolumeValue });
+            microphoneVolume.ValueChanged += delegate
+            {
+                if (microphoneVolume.Enabled) microphoneVolumeValue.Text = microphoneVolume.Value + "%";
+            };
+            microphoneVolume.Scroll += ChangeMicrophoneVolume;
+            microphoneVolume.MouseDown += delegate { draggingVolume = true; };
+            microphoneVolume.MouseUp += delegate { draggingVolume = false; SyncMicrophoneVolume(); };
+            microphoneVolume.KeyUp += delegate { SyncMicrophoneVolume(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add(M("打开主窗口"), null, delegate { ShowMain(); });
@@ -269,7 +307,13 @@ namespace PushToTalk
             RebuildBindings();
             loading = false;
             modes.SelectedIndexChanged += delegate { if (loading) return; UpdateMode(); SaveSettings(); };
-            devices.SelectedIndexChanged += delegate { SaveSettings(); UpdateButtons(); };
+            devices.SelectedIndexChanged += delegate
+            {
+                if (loading) return;
+                SelectVolumeDevice();
+                SaveSettings();
+                UpdateButtons();
+            };
             enableSounds.CheckedChanged += delegate { feedback.Enabled = enableSounds.Checked; SaveSettings(); };
             startWithWindows.CheckedChanged += ChangeStartup;
             language.SelectedIndexChanged += delegate
@@ -303,6 +347,7 @@ namespace PushToTalk
             FormClosing += HandleFormClosing;
             ApplyOverlayVisibility();
             ApplyLanguage(true);
+            Activated += delegate { if (!draggingVolume) SelectVolumeDevice(); };
         }
 
         private static readonly Dictionary<string, string> englishText = new Dictionary<string, string>
@@ -313,6 +358,9 @@ namespace PushToTalk
             { "关于", "About" },
             { "多个按键，一个麦克风。", "Multiple hotkeys. One microphone." },
             { "麦克风", "Microphone" },
+            { "麦克风音量", "Microphone volume" },
+            { "调整当前所选麦克风的系统输入音量，也会影响使用该设备的其他应用。", "Adjust the selected microphone's Windows input volume. This also affects other apps using the device." },
+            { "无法调整麦克风音量：", "Unable to adjust microphone volume: " },
             { "刷新", "Refresh" },
             { "控制方式", "Control mode" },
             { "按住说话", "Push to talk" },
@@ -411,6 +459,7 @@ namespace PushToTalk
                 if (session != null) SetLiveStatus(lastMute);
                 else SetIdle(preserveIdleMessage ? M(detail.Text) : M(devices.SelectedItem == null ?
                     "请重新选择要控制的麦克风。" : "设置好按键后，点击下方按钮启用。"));
+                SelectVolumeDevice();
             }
             finally { loading = previousLoading; }
         }
@@ -480,7 +529,81 @@ namespace PushToTalk
                 else if (index < 0) SetIdle(M("请重新选择要控制的麦克风。"));
             }
             catch (Exception e) { SetIdle(e.Message); }
-            finally { loading = wasLoading; UpdateButtons(); }
+            finally { loading = wasLoading; SelectVolumeDevice(); UpdateButtons(); }
+        }
+
+        private void CloseVolumeSession()
+        {
+            AudioSession previous = volumeSession;
+            volumeSession = null;
+            if (previous != null) previous.Dispose();
+        }
+
+        private void SelectVolumeDevice()
+        {
+            CloseVolumeSession();
+            microphoneVolume.Enabled = false;
+            microphoneVolumeValue.Text = "—";
+            string hint = M("调整当前所选麦克风的系统输入音量，也会影响使用该设备的其他应用。");
+            microphoneVolume.AccessibleDescription = hint;
+            volumeTip.SetToolTip(microphoneVolume, hint);
+            volumeTip.SetToolTip(microphoneVolumeValue, hint);
+            MicrophoneInfo microphone = devices.SelectedItem as MicrophoneInfo;
+            if (microphone == null || disposedResources) return;
+            try
+            {
+                // Reuse the controlling session while active, so a second COM
+                // wrapper cannot invalidate the endpoint when it is disposed.
+                if (session == null) volumeSession = new AudioSession(microphone.Id);
+                SyncMicrophoneVolume();
+            }
+            catch (Exception error) { VolumeUnavailable(error); }
+        }
+
+        private void SyncMicrophoneVolume()
+        {
+            AudioSession selectedSession = session ?? volumeSession;
+            if (selectedSession == null || draggingVolume || updatingVolume) return;
+            try
+            {
+                int value = selectedSession.GetVolume();
+                updatingVolume = true;
+                try
+                {
+                    microphoneVolume.Value = value;
+                    microphoneVolume.Enabled = true;
+                    microphoneVolumeValue.Text = value + "%";
+                }
+                finally { updatingVolume = false; }
+            }
+            catch (Exception error) { VolumeUnavailable(error); }
+        }
+
+        private void VolumeUnavailable(Exception error)
+        {
+            CloseVolumeSession();
+            microphoneVolume.Enabled = false;
+            microphoneVolumeValue.Text = "—";
+            microphoneVolume.AccessibleDescription = error.Message;
+            volumeTip.SetToolTip(microphoneVolume, error.Message);
+            volumeTip.SetToolTip(microphoneVolumeValue, error.Message);
+        }
+
+        private void ChangeMicrophoneVolume(object sender, EventArgs args)
+        {
+            AudioSession selectedSession = session ?? volumeSession;
+            if (loading || updatingVolume || selectedSession == null) return;
+            try
+            {
+                selectedSession.SetVolume(microphoneVolume.Value);
+                microphoneVolumeValue.Text = microphoneVolume.Value + "%";
+            }
+            catch (Exception error)
+            {
+                VolumeUnavailable(error);
+                MessageBox.Show(this, M("无法调整麦克风音量：") + error.Message,
+                    "Push To Talk", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private bool ContainsBinding(HotkeyBinding value)
@@ -695,6 +818,7 @@ namespace PushToTalk
             if (bindings.Count == 0 || devices.SelectedItem == null) return;
             try
             {
+                CloseVolumeSession();
                 session = new AudioSession(((MicrophoneInfo)devices.SelectedItem).Id);
                 hasOriginalMute = false;
                 originalMute = session.GetMute();
@@ -708,6 +832,7 @@ namespace PushToTalk
                 paused = false;
                 timer.Start();
                 SetLiveStatus(true);
+                SyncMicrophoneVolume();
                 UpdateButtons();
             }
             catch (Exception e) { StopForError(e.Message); if (showErrorWindow) ShowMain(); }
@@ -724,6 +849,7 @@ namespace PushToTalk
                 if (mute != lastMute || watchdog >= 500)
                 {
                     if (mute != lastMute || session.GetMute() != mute) session.SetMute(mute);
+                    if (watchdog >= 500) SyncMicrophoneVolume();
                     watchdog = 0;
                     lastMute = mute;
                 }
@@ -774,6 +900,7 @@ namespace PushToTalk
             }
             hasOriginalMute = false;
             UpdateButtons();
+            SelectVolumeDevice();
             return error;
         }
 
@@ -888,7 +1015,9 @@ namespace PushToTalk
                 SystemEvents.DisplaySettingsChanged -= DisplaysChanged;
                 CloseOverlay();
                 EndSession();
+                CloseVolumeSession();
                 timer.Dispose();
+                volumeTip.Dispose();
                 feedback.Dispose();
                 tray.Visible = false;
                 if (tray.ContextMenuStrip != null) tray.ContextMenuStrip.Dispose();

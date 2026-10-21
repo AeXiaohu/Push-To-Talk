@@ -31,7 +31,8 @@ namespace PushToTalk
                 TestOverlayOpacity();
                 TestOverlayLayout();
                 TestStartupRegistration();
-                TestStartupLauncher();
+                TestSelfElevation();
+                TestVolumeConversion();
                 TestSoundFeedbackTransitions();
                 TestSoundFeedbackSwitchAndDisposal();
                 Console.WriteLine("PASS: " + assertions + " deterministic assertions.");
@@ -524,153 +525,141 @@ namespace PushToTalk
 
         private static void TestStartupRegistration()
         {
-            Check(!StartupRegistration.IsStartupLaunch(null), "Null arguments must use a normal visible launch.");
-            Check(!StartupRegistration.IsStartupLaunch(new string[0]), "A manual launch without arguments must stay visible.");
-            Check(!StartupRegistration.IsStartupLaunch(new string[] { "--other", "startup" }), "Unrelated arguments must not hide the main window.");
-            Check(StartupRegistration.IsStartupLaunch(new string[] { "--startup" }), "The startup argument must request a tray-only launch.");
-            Check(StartupRegistration.IsStartupLaunch(new string[] { "--other", "--StArTuP" }), "The startup argument must be case-insensitive and accepted after other arguments.");
+            Check(!StartupRegistration.IsStartupLaunch(null), "Null arguments must keep manual startup visible.");
+            Check(!StartupRegistration.IsStartupLaunch(new string[0]), "Empty arguments must keep manual startup visible.");
+            Check(!StartupRegistration.IsStartupLaunch(new string[] { "startup" }), "Unrelated arguments must not hide the UI.");
+            Check(StartupRegistration.IsStartupLaunch(new string[] { "--STARTUP" }), "The startup flag must be case insensitive.");
             string executable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Push To Talk.exe");
-            string expected = "\"" + Path.Combine(Path.GetDirectoryName(Path.GetFullPath(executable)), "Push To Talk Startup.exe") + "\"";
+            string expected = "\"" + Path.GetFullPath(executable) + "\" --startup";
             StartupStore store = new StartupStore();
             StartupRegistration registration = new StartupRegistration(store, delegate(string path) { return true; });
-            Check(!registration.IsEnabled(executable), "A missing startup entry must default to off.");
-            Check(!registration.MigrateLegacyRegistration(executable), "Opening a fresh installation must not turn startup on.");
-            Check(store.Writes == 0 && store.Deletes == 0, "Reading startup state must never change registration.");
-            Check(StartupRegistration.BuildCommandLine(executable) == expected, "Startup must register the quoted, non-elevated companion instead of the administrator application.");
+            Check(!registration.IsEnabled(executable) && !registration.MigrateLegacyRegistration(executable), "Fresh startup must stay off.");
+            Check(store.Writes == 0 && store.Deletes == 0, "Reading startup must not modify registration.");
+            Check(StartupRegistration.BuildCommandLine(executable) == expected, "Single-file startup must target the quoted main executable directly.");
             registration.SetEnabled(executable, true);
-            Check(store.Writes == 1 && store.Deletes == 0 && (string)store.Value == expected, "Explicit enable must save the current executable command.");
-            Check(registration.IsEnabled(executable), "The registered executable must be shown enabled.");
+            Check(store.Writes == 1 && (string)store.Value == expected && registration.IsEnabled(executable), "Enabling startup must register the actual main executable.");
             store.Value = expected.ToUpperInvariant();
-            Check(registration.IsEnabled(executable), "Windows startup executable comparison must be case-insensitive.");
-            store.Value = "\"" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "old", "Push To Talk.exe") + "\" --startup";
-            Check(!registration.IsEnabled(executable), "An entry for a moved executable must not falsely enable this copy.");
-            Check(store.Writes == 1 && store.Deletes == 0, "Inspecting a stale entry must not silently repair or delete it.");
+            Check(registration.IsEnabled(executable), "Windows executable matching must be case insensitive.");
+            Check(!registration.MigrateLegacyRegistration(executable) && store.Writes == 1, "An existing 1.0 or 1.2 direct registration needs no rewrite.");
+            store.Value = "\"" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "other", "Push To Talk.exe") + "\" --startup";
+            Check(!registration.IsEnabled(executable) && !registration.MigrateLegacyRegistration(executable), "An unrelated installation must not be changed.");
             store.Value = 1;
-            Check(!registration.IsEnabled(executable), "Malformed startup value types must remain disabled.");
+            Check(!registration.IsEnabled(executable) && !registration.MigrateLegacyRegistration(executable), "Malformed registration must not enable startup.");
             registration.SetEnabled(executable, false);
-            Check(store.Value == null && store.Writes == 1 && store.Deletes == 1, "Explicit disable must delete only its own registration through the store.");
-            Check(!registration.IsEnabled(executable), "Disabled registration must remain disabled.");
+            Check(store.Value == null && store.Deletes == 1, "Disabling startup must delete its named entry.");
+            store.Value = "\"" + StartupRegistration.GetLegacyLauncherPath(executable) + "\"";
+            Check(!registration.IsEnabled(executable), "Reading a 1.1 companion entry alone must not claim direct startup is ready.");
+            Check(registration.MigrateLegacyRegistration(executable), "The same installation's 1.1 companion must migrate.");
+            Check((string)store.Value == expected && registration.IsEnabled(executable) && store.Writes == 2, "Migration must keep enabled startup using the single executable.");
+            Check(!registration.MigrateLegacyRegistration(executable) && store.Writes == 2, "A migrated entry must not be rewritten repeatedly.");
+            store.Value = "\"" + StartupRegistration.GetLegacyLauncherPath(executable).ToUpperInvariant() + "\"";
+            Check(registration.MigrateLegacyRegistration(executable), "Legacy companion path comparison must be case insensitive.");
+            store.Value = "\"" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "other", "Push To Talk Startup.exe") + "\"";
+            int writes = store.Writes;
+            Check(!registration.MigrateLegacyRegistration(executable) && store.Writes == writes, "Another installation's companion entry must remain untouched.");
             store.FailWrite = true;
             bool failed = false;
             try { registration.SetEnabled(executable, true); }
             catch (IOException) { failed = true; }
-            Check(failed && store.Value == null, "Registration failures must reach the UI without pretending to enable startup.");
-            bool invalidPath = false;
+            Check(failed && store.Writes == writes, "A registration failure must not claim success.");
+            bool invalid = false;
             try { StartupRegistration.BuildCommandLine(" "); }
-            catch (ArgumentException) { invalidPath = true; }
-            Check(invalidPath, "Blank startup executable paths must be rejected.");
-            bool tooLong = false;
+            catch (ArgumentException) { invalid = true; }
+            Check(invalid, "Blank executable paths must be rejected.");
+            invalid = false;
             try { StartupRegistration.BuildCommandLine(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, new string('x', 250), "Push To Talk.exe")); }
-            catch (PathTooLongException) { tooLong = true; }
-            Check(tooLong, "Unsupported Windows Run command lengths must fail visibly.");
-
-            StartupStore legacyStore = new StartupStore();
-            StartupRegistration legacy = new StartupRegistration(legacyStore, delegate(string path) { return true; });
-            legacyStore.Value = "\"" + Path.GetFullPath(executable) + "\" --startup";
-            Check(!legacy.IsEnabled(executable) && legacyStore.Writes == 0, "Reading a legacy registration alone must not migrate it or claim the new launcher is registered.");
-            Check(legacy.MigrateLegacyRegistration(executable), "An explicitly enabled 1.0 registration for this installation must migrate.");
-            Check((string)legacyStore.Value == expected && legacyStore.Writes == 1 && legacy.IsEnabled(executable), "Migration must preserve enabled startup using the new companion command.");
-            Check(!legacy.MigrateLegacyRegistration(executable) && legacyStore.Writes == 1, "A migrated registration must not be rewritten on every launch.");
-            legacyStore.Value = "\"" + Path.GetFullPath(executable).ToUpperInvariant() + "\" --STARTUP";
-            Check(legacy.MigrateLegacyRegistration(executable), "Legacy command matching must follow Windows case-insensitive path semantics.");
-            legacyStore.Value = "\"" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "other installation", "Push To Talk.exe") + "\" --startup";
-            int previousWrites = legacyStore.Writes;
-            Check(!legacy.MigrateLegacyRegistration(executable) && legacyStore.Writes == previousWrites, "Migration must leave other installation paths untouched.");
-            legacyStore.Value = 1;
-            Check(!legacy.MigrateLegacyRegistration(executable) && legacyStore.Writes == previousWrites, "Malformed existing values must not enable startup.");
-
+            catch (PathTooLongException) { invalid = true; }
+            Check(invalid, "Oversized Run commands must fail visibly.");
             StartupStore missingStore = new StartupStore();
             StartupRegistration missing = new StartupRegistration(missingStore, delegate(string path) { return false; });
-            bool missingFile = false;
+            failed = false;
             try { missing.SetEnabled(executable, true); }
-            catch (FileNotFoundException) { missingFile = true; }
-            Check(missingFile && missingStore.Writes == 0, "A missing companion must not leave a falsely enabled startup entry.");
-            missingStore.Value = expected;
-            Check(!missing.IsEnabled(executable), "A startup entry whose companion is missing must not be shown as usable.");
-            missing.SetEnabled(executable, false);
-            Check(missingStore.Value == null && missingStore.Deletes == 1, "Disabling startup must work even when the companion has been removed.");
-            string legacyValue = "\"" + Path.GetFullPath(executable) + "\" --startup";
-            missingStore.Value = legacyValue;
-            missingFile = false;
+            catch (FileNotFoundException) { failed = true; }
+            Check(failed && missingStore.Writes == 0, "A missing main executable must not create a broken startup entry.");
+            string legacy = "\"" + StartupRegistration.GetLegacyLauncherPath(executable) + "\"";
+            missingStore.Value = legacy;
+            failed = false;
             try { missing.MigrateLegacyRegistration(executable); }
-            catch (FileNotFoundException) { missingFile = true; }
-            Check(missingFile && (string)missingStore.Value == legacyValue && missingStore.Writes == 0,
-                "A failed upgrade must preserve the previous startup preference without writing a broken command.");
+            catch (FileNotFoundException) { failed = true; }
+            Check(failed && (string)missingStore.Value == legacy && missingStore.Writes == 0, "Failed migration must preserve the existing registration.");
+            missing.SetEnabled(executable, false);
+            Check(missingStore.Value == null && missingStore.Deletes == 1, "Disabling must work even when the executable is gone.");
             StartupStore renamedStore = new StartupStore();
             StartupRegistration renamed = new StartupRegistration(renamedStore, delegate(string path) { return true; });
-            bool renamedRejected = false;
-            try { renamed.SetEnabled(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Renamed.exe"), true); }
-            catch (InvalidOperationException) { renamedRejected = true; }
-            Check(renamedRejected && renamedStore.Writes == 0, "A renamed executable must not register a companion that would launch a different fixed target.");
+            string renamedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Portable Apps 中文", "My Mic.exe");
+            renamed.SetEnabled(renamedPath, true);
+            Check((string)renamedStore.Value == "\"" + Path.GetFullPath(renamedPath) + "\" --startup", "Renamed single-file apps must register their own absolute path.");
         }
 
-        private static void TestStartupLauncher()
+        private static void TestSelfElevation()
         {
-            string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Portable Apps 中文");
-            string executable = Path.Combine(Path.GetFullPath(directory), "Push To Talk.exe");
-            System.Diagnostics.ProcessStartInfo info = StartupLauncher.CreateStartInfo(directory);
-            Check(info.FileName == executable && Path.IsPathRooted(info.FileName), "The launcher target must be an absolute sibling path, including spaces and Unicode.");
-            Check(info.WorkingDirectory == Path.GetFullPath(directory), "Startup must not depend on the Windows logon working directory.");
-            Check(info.UseShellExecute && info.Verb == "runas", "Startup must explicitly request administrator approval through the Windows shell.");
-            Check(info.Arguments == "--startup", "Only the fixed startup flag may be passed to the elevated main app.");
-            Check(info.WindowStyle == System.Diagnostics.ProcessWindowStyle.Normal && !info.CreateNoWindow,
-                "The launcher must not hide the elevated application's error or approval-related UI.");
-            int launches = 0;
-            bool started = StartupLauncher.Launch(directory, delegate(string path) { return path == executable; },
-                delegate(System.Diagnostics.ProcessStartInfo command) { launches++; Check(command.FileName == executable, "The validated target must be the one launched."); });
-            Check(started && launches == 1, "A successful request must launch exactly once.");
-            launches = 0;
-            bool cancelled = StartupLauncher.Launch(directory, delegate(string path) { return true; },
-                delegate(System.Diagnostics.ProcessStartInfo command) { launches++; throw new System.ComponentModel.Win32Exception(1223); });
-            Check(!cancelled && launches == 1, "UAC cancellation must exit after one attempt without retrying or falling back to ordinary privileges.");
+            string executable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Portable Apps 中文", "My Mic.exe");
+            foreach (bool startup in new bool[] { false, true })
+            {
+                System.Diagnostics.ProcessStartInfo info = SelfElevation.CreateStartInfo(executable, startup);
+                Check(info.FileName == Path.GetFullPath(executable), "Self-elevation must target the same absolute executable, including renamed files and Unicode paths.");
+                Check(info.WorkingDirectory == Path.GetDirectoryName(Path.GetFullPath(executable)), "Elevation must use the application directory.");
+                Check(info.UseShellExecute && info.Verb == "runas", "The Windows shell must request administrator consent.");
+                string expected = (startup ? "--startup " : "") + SelfElevation.RequestedArgument;
+                Check(info.Arguments == expected, "Only the fixed startup and loop-prevention flags may be forwarded.");
+                Check(info.WindowStyle == System.Diagnostics.ProcessWindowStyle.Normal, "The elevated UI must not be forcibly hidden.");
+                int launches = 0;
+                bool started = SelfElevation.Launch(executable, startup, delegate(string path) { return path == executable; },
+                    delegate(System.Diagnostics.ProcessStartInfo command) { launches++; });
+                Check(started && launches == 1, "A successful elevation request must launch exactly once.");
+                launches = 0;
+                bool cancelled = SelfElevation.Launch(executable, startup, delegate(string path) { return true; },
+                    delegate(System.Diagnostics.ProcessStartInfo command) { launches++; throw new System.ComponentModel.Win32Exception(1223); });
+                Check(!cancelled && launches == 1, "Cancelling UAC must stop after one attempt without retry or a normal-permission fallback.");
+            }
+            Check(!SelfElevation.WasElevationRequested(null) && !SelfElevation.WasElevationRequested(new string[0]), "An ordinary launch must not be mistaken for an elevation attempt.");
+            Check(SelfElevation.WasElevationRequested(new string[] { "--ELEVATION-REQUESTED" }), "The internal marker must be case insensitive.");
+            Check(!SelfElevation.WasElevationRequested(new string[] { "--elevation-requested-extra" }), "The internal marker must match exactly.");
+            int attempts = 0;
             bool failed = false;
-            launches = 0;
             try
             {
-                StartupLauncher.Launch(directory, delegate(string path) { return true; },
-                    delegate(System.Diagnostics.ProcessStartInfo command) { launches++; throw new System.ComponentModel.Win32Exception(5); });
+                SelfElevation.Launch(executable, false, delegate(string path) { return true; },
+                    delegate(System.Diagnostics.ProcessStartInfo info) { attempts++; throw new System.ComponentModel.Win32Exception(5); });
             }
             catch (System.ComponentModel.Win32Exception error) { failed = error.NativeErrorCode == 5; }
-            Check(failed && launches == 1, "Non-cancellation launch errors must be reported without retrying.");
+            Check(failed && attempts == 1, "Other elevation errors must be reported without repeated prompts.");
+            attempts = 0;
             failed = false;
-            launches = 0;
             try
             {
-                StartupLauncher.Launch(directory, delegate(string path) { return false; },
-                    delegate(System.Diagnostics.ProcessStartInfo command) { launches++; });
+                SelfElevation.Launch(executable, false, delegate(string path) { return false; },
+                    delegate(System.Diagnostics.ProcessStartInfo info) { attempts++; });
             }
             catch (FileNotFoundException error) { failed = error.FileName == executable; }
-            Check(failed && launches == 0, "A missing main app must fail before any elevation request.");
-            bool invalid = false;
-            try { StartupLauncher.CreateStartInfo(" "); }
-            catch (ArgumentException) { invalid = true; }
-            Check(invalid, "An empty startup directory must be rejected.");
-
-            string pathForSettings = Path.Combine(Path.GetTempPath(), "PushToTalk-Launcher-" + Guid.NewGuid().ToString("N") + ".xml");
-            try
-            {
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "Fresh launcher settings must follow the system language.");
-                foreach (string language in new string[] { "en-US", "zh-CN", "system", "unexpected" })
-                {
-                    string content = "<AppSettings><Language>" + language + "</Language><Bindings><string>V</string></Bindings></AppSettings>";
-                    File.WriteAllText(pathForSettings, content);
-                    Check(StartupLauncher.ReadLanguage(pathForSettings) == Localization.NormalizeLanguage(language), "The companion must respect the saved interface language.");
-                    Check(File.ReadAllText(pathForSettings) == content, "Reading launch language must not modify user settings.");
-                }
-                File.WriteAllText(pathForSettings, "<AppSettings><Bindings><string>F2</string></Bindings></AppSettings>");
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "Legacy settings without a language must follow the system.");
-                File.WriteAllText(pathForSettings, "<Other><Language>en-US</Language></Other>");
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "Unrelated XML must not be treated as application settings.");
-                File.WriteAllText(pathForSettings, "<AppSettings><Language>");
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "Malformed settings must not prevent startup.");
-                File.WriteAllText(pathForSettings, "<!DOCTYPE AppSettings [<!ENTITY language 'en-US'>]><AppSettings><Language>&language;</Language></AppSettings>");
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "The startup language reader must reject DTD entities.");
-                File.WriteAllText(pathForSettings, "<AppSettings><Padding>" + new string('x', 262145) + "</Padding><Language>en-US</Language></AppSettings>");
-                Check(StartupLauncher.ReadLanguage(pathForSettings) == "system", "Oversized settings must not be parsed by the startup companion.");
-            }
-            finally { if (File.Exists(pathForSettings)) File.Delete(pathForSettings); }
+            Check(failed && attempts == 0, "A missing executable must fail before requesting UAC.");
         }
 
+        private static void TestVolumeConversion()
+        {
+            for (int percent = 0; percent <= 100; percent++)
+            {
+                float scalar = AudioSession.PercentToScalar(percent);
+                Check(scalar >= 0 && scalar <= 1, "Microphone volume must stay within the Core Audio scalar range.");
+                Check(AudioSession.ScalarToPercent(scalar) == percent, "All 101 slider values must round-trip through the endpoint API.");
+            }
+            foreach (int invalid in new int[] { -1, 101, Int32.MinValue, Int32.MaxValue })
+            {
+                bool failed = false;
+                try { AudioSession.PercentToScalar(invalid); }
+                catch (ArgumentOutOfRangeException) { failed = true; }
+                Check(failed, "Out-of-range volume writes must be rejected.");
+            }
+            foreach (float invalid in new float[] { Single.NaN, Single.PositiveInfinity, Single.NegativeInfinity })
+            {
+                bool failed = false;
+                try { AudioSession.ScalarToPercent(invalid); }
+                catch (ArgumentOutOfRangeException) { failed = true; }
+                Check(failed, "Invalid driver volume readings must be rejected.");
+            }
+            Check(AudioSession.ScalarToPercent(-0.01F) == 0 && AudioSession.ScalarToPercent(1.01F) == 100, "Finite driver rounding overshoot must be clamped to valid slider bounds.");
+            Check(AudioSession.ScalarToPercent(0.125F) == 13, "Volume display must round midpoint values consistently.");
+        }
         private sealed class StartupStore : IStartupRegistrationStore
         {
             internal object Value;

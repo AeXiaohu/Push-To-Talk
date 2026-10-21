@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
@@ -8,8 +9,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("Push To Talk")]
 [assembly: AssemblyProduct("Push To Talk")]
 [assembly: AssemblyDescription("Lightweight microphone control with multiple hotkeys and optional sound feedback")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace PushToTalk
 {
@@ -23,15 +24,29 @@ namespace PushToTalk
             string settingsError;
             AppSettings launchSettings = AppSettings.Load(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.xml"), out settingsError);
             Localization.SetLanguage(launchSettings.Language);
+            bool startupLaunch = StartupRegistration.IsStartupLaunch(args);
             if (!IsAdministrator())
             {
-                MessageBox.Show(Localization.Text(
-                    "Push To Talk 必须以管理员身份运行。请右键程序并选择“以管理员身份运行”。",
-                    "Push To Talk must run as administrator. Right-click the app and select Run as administrator."),
-                    "Push To Talk", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (SelfElevation.WasElevationRequested(args))
+                {
+                    MessageBox.Show(Localization.Text(
+                        "未能获得管理员权限，Push To Talk 已停止启动。请检查 Windows 的程序兼容性设置。",
+                        "Administrator permission was not granted. Push To Talk has stopped starting. Check the app's Windows compatibility settings."),
+                        "Push To Talk", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                try
+                {
+                    SelfElevation.Launch(Application.ExecutablePath, startupLaunch, System.IO.File.Exists,
+                        delegate(ProcessStartInfo info) { using (Process process = Process.Start(info)) { } });
+                }
+                catch (Exception error)
+                {
+                    MessageBox.Show(Localization.Text("无法以管理员身份启动 Push To Talk：", "Unable to start Push To Talk as administrator: ") + error.Message,
+                        "Push To Talk", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
                 return;
             }
-            bool startupLaunch = StartupRegistration.IsStartupLaunch(args);
             bool created;
             // Keep the original mutex identity so old and renamed builds cannot both control the mic.
             using (Mutex mutex = new Mutex(true, "Local\\PushToTalkLite.SingleInstance.6EB72C80", out created))

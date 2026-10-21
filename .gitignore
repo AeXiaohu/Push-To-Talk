@@ -1,0 +1,10 @@
+# Build output
+/bin/
+
+# Local preferences and temporary settings writes
+/settings.xml
+/settings.xml.tmp
+*.tmp
+
+# Temporary icon generator build
+/tools/.icon-build/
